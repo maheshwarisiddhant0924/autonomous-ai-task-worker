@@ -44,49 +44,63 @@ async def async_main():
 
     try:
         # Run graph
-        result = None
-        async for s in graph.astream(initial_state, config=config, stream_mode="values"):
-            term = s.get("terminal")
-            pq = s.get("pending_question")
+        state = initial_state
+        while True:
+            terminal_reached = False
+            async for s in graph.astream(state, config=config, stream_mode="values"):
+                term = s.get("terminal")
+                pq = s.get("pending_question")
 
-            if term == TerminalState.NEEDS_HUMAN:
-                # We need input
-                console.print(f"\n[bold yellow]Agent Paused:[/bold yellow] {pq}")
-                answer = console.input("> [bold green]Your response (or 'yes' to approve):[/bold green] ")
+                if term == TerminalState.NEEDS_HUMAN:
+                    console.print(f"\n[bold yellow]Agent Paused:[/bold yellow] {pq}")
+                    answer = console.input("> [bold green]Your response (or 'yes' to approve):[/bold green] ")
 
-                # Very basic interrupt resume handling for CLI
-                if "Approval required for" in str(pq) and answer.lower() in ["y", "yes", "approve"]:
-                    # the human approved
-                    # For a true resume, we'd record approval and then pass `None` to the graph via `update_state`
-                    from worker.react.policy_gate import record_approval
-                    from langgraph.graph import StateGraph
-                    ptool = s.get("pending_tool")
-                    if ptool:
-                        state_vals = graph.get_state(config).values
-                        record_approval(ptool, s.get("pending_args", {}), state_vals)
-                        # We would resume here. Simplified for CLI stub.
-                        console.print("[dim]Resuming...[/dim]")
+                    if "Approval required for" in str(pq) and answer.lower() in ["y", "yes", "approve"]:
+                        from worker.react.policy_gate import record_approval
+                        ptool = s.get("pending_tool")
+                        if ptool:
+                            current_state = await graph.aget_state(config)
+                            state_values = dict(current_state.values)
+                            new_approvals = record_approval(ptool, s.get("pending_args", {}), state_values)
+                            patch = {
+                                "approvals": new_approvals,
+                                "terminal": None,
+                                "pending_question": None,
+                                "tool_resume_approved": True,
+                                "steps_since_plan_advance": 0
+                            }
+                            await graph.aupdate_state(config, patch, as_node="node_agent")
+                            console.print("[dim]Approval recorded. Resuming execution...[/dim]")
+                            state = None
+                            break
+                    else:
+                        console.print("[bold red]Execution stopped by user decline or clarification required.[/bold red]")
+                        terminal_reached = True
+                        break
 
-            if term == TerminalState.SUCCESS_VERIFIED:
-                console.print("\n[bold green]✅ Agent finished successfully![/bold green]")
-                if s.get("verify_result"):
-                    console.print("Outcome:", s["verify_result"].get("outcome"))
+                elif term == TerminalState.SUCCESS_VERIFIED:
+                    console.print("\n[bold green]✅ Agent finished successfully![/bold green]")
+                    if s.get("verify_result"):
+                        console.print("Outcome:", s["verify_result"].get("outcome"))
+                    terminal_reached = True
+                    break
+
+                elif term == TerminalState.FAILED_WITH_REASON:
+                    console.print("\n[bold red]❌ Agent failed.[/bold red]")
+                    console.print("Reason:", s.get("pending_question", "Execution error"))
+                    terminal_reached = True
+                    break
+
+                elif s.get("plan_progress") is not None:
+                    plan = s.get("plan", [])
+                    p_idx = s.get("plan_progress", 0)
+                    if plan and p_idx < len(plan):
+                        desc = plan[p_idx].get("description", "")
+                        sys.stdout.write(f"\r[Stage {p_idx+1}/6] {desc}...                  ")
+                        sys.stdout.flush()
+
+            if terminal_reached:
                 break
-
-            elif term == TerminalState.FAILED_WITH_REASON:
-                console.print("\n[bold red]❌ Agent failed.[/bold red]")
-                break
-
-            elif s.get("plan_progress") is not None:
-                # Just print some progress
-                plan = s.get("plan", [])
-                p_idx = s.get("plan_progress", 0)
-                if plan and p_idx < len(plan):
-                    desc = plan[p_idx].get("description", "")
-                    sys.stdout.write(f"\r[Stage {p_idx+1}/6] {desc}...                  ")
-                    sys.stdout.flush()
-
-            result = s
 
     except Exception as e:
         console.print(f"\n[bold red]Fatal error during execution:[/bold red] {e}")

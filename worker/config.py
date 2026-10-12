@@ -8,10 +8,40 @@ load_dotenv()
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 INVOICE_DIR = Path(os.getenv("INVOICE_DIR", str(BASE_DIR / "invoices")))
 SQLITE_DB = Path(os.getenv("SQLITE_DB", str(BASE_DIR / "data" / "erp.db")))
 STATE_DB = Path(os.getenv("STATE_DB", str(BASE_DIR / "data" / "agent_state.db")))
 AUDIT_LOG = Path(os.getenv("AUDIT_LOG", str(BASE_DIR / "logs" / "audit.jsonl")))
+
+# ── Resilience Helpers ──────────────────────────────────────────────────────
+import time
+import functools
+import logging
+
+logger = logging.getLogger(__name__)
+
+def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, backoff_factor: float = 2.0, exceptions=(Exception,)):
+    """Exponential backoff decorator for LLM API and network requests."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = base_delay
+            last_err = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_err = e
+                    if attempt == max_retries:
+                        logger.error(f"[RetryExhausted] {func.__name__} failed after {max_retries} attempts: {e}")
+                        raise
+                    logger.warning(f"[BackoffRetry] {func.__name__} failed (attempt {attempt}/{max_retries}): {e}. Retrying in {delay:.1f}s...")
+                    time.sleep(delay)
+                    delay *= backoff_factor
+            raise last_err
+        return wrapper
+    return decorator
 
 # ── LLM ─────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

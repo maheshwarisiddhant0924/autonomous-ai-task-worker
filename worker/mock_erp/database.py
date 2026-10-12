@@ -112,10 +112,58 @@ def create_invoice(data: dict, db_path: Path | None = None) -> dict:
 
 
 def execute_write(business_key_field: str, business_key_value: str, data: dict, db_path: Path | None = None) -> dict:
-    """Helper used by evaluate.py for setting up pre-test records."""
+    """Helper used by evaluate.py and toolkits for setting up and writing records."""
     if business_key_field == "invoice_number":
         return create_invoice(data, db_path)
+    elif business_key_field == "trade_id":
+        return create_trade(data, db_path)
     raise NotImplementedError(f"Unsupported business key: {business_key_field}")
+
+
+def create_trade(data: dict, db_path: Path | None = None) -> dict:
+    """Insert a trade order into trades table."""
+    conn = _get_conn(db_path)
+    try:
+        cursor = conn.execute(
+            """INSERT INTO trades
+               (trade_id, symbol, direction, quantity, price, trade_date)
+               VALUES (:trade_id, :symbol, :direction, :quantity, :price, :trade_date)""",
+            {
+                "trade_id": data["trade_id"],
+                "symbol": data["symbol"].upper(),
+                "direction": data.get("direction", data.get("side", "buy")).lower(),
+                "quantity": float(data["quantity"]),
+                "price": float(data["price"]),
+                "trade_date": data.get("trade_date", datetime.utcnow().strftime("%Y-%m-%d")),
+            },
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM trades WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def get_trade_by_key(trade_id: str, db_path: Path | None = None) -> dict | None:
+    conn = _get_conn(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM trades WHERE trade_id = ?", (trade_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_trades(db_path: Path | None = None) -> list[dict]:
+    conn = _get_conn(db_path)
+    try:
+        rows = conn.execute("SELECT * FROM trades ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def get_invoice_by_key(invoice_number: str, db_path: Path | None = None) -> dict | None:
@@ -182,11 +230,15 @@ def snapshot_table(
     business_key_field: str, business_key_value: str | None = None,
     db_path: Path | None = None,
 ) -> Baseline:
-    """Take a baseline snapshot of the invoices table.
+    """Take a baseline snapshot of the target table (invoices or trades).
 
     Returns per-row content hashes for the whole table plus a key-scoped view.
     """
-    rows = list_invoices(db_path)
+    if business_key_field == "trade_id":
+        rows = list_trades(db_path)
+    else:
+        rows = list_invoices(db_path)
+
     row_hashes = []
     key_scoped = None
 
@@ -214,7 +266,11 @@ def key_state(
 
     Returns {"status": "absent"} or {"status": "present", "values": {...}}
     """
-    row = get_invoice_by_key(business_key_value, db_path) if business_key_field == "invoice_number" else None
+    if business_key_field == "trade_id":
+        row = get_trade_by_key(business_key_value, db_path)
+    else:
+        row = get_invoice_by_key(business_key_value, db_path)
+
     if row is None:
         return {"status": "absent"}
     return {"status": "present", "values": row}

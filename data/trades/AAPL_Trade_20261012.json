@@ -1,0 +1,8 @@
+{
+  "trade_id": "TRD-8801",
+  "symbol": "AAPL",
+  "direction": "buy",
+  "quantity": 50.0,
+  "price": 225.5,
+  "trade_date": "2026-10-12"
+}

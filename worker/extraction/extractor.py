@@ -14,7 +14,10 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from worker.config import MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER
+from worker.config import (
+    MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER,
+    retry_with_backoff,
+)
 from worker.models import ExtractedField, ExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -79,6 +82,7 @@ RULES:
 Respond in JSON format."""
 
 
+@retry_with_backoff(max_retries=3, base_delay=1.0)
 def extract_fields(
     document_text: str,
     field_schema: str = "invoice",

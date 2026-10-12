@@ -11,7 +11,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
-from worker.config import MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER
+from worker.config import (
+    MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER,
+    retry_with_backoff,
+)
 from worker.toolkits import Toolkit
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,7 @@ Respond in JSON format with keys: toolkit, params, confidence, reasoning, clarif
 """
 
 
+@retry_with_backoff(max_retries=3, base_delay=1.0)
 def route_request(user_query: str, toolkits: dict[str, Toolkit]) -> RouterDecision:
     llm_kwargs = {
         "model": MODEL_NAME,

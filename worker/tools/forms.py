@@ -19,19 +19,20 @@ logger = logging.getLogger(__name__)
 async def fill_form(
     bound: BoundState,
     toolkit: Toolkit,
-    form_id: str = "invoice_form"
+    form_id: str | None = None
 ) -> ToolResult:
     """Fill a form using accessible labels mapped from bound keys.
 
     Falls back to fuzzy matching if exact label fails.
     Returns FormMapMismatch error if mapping fails.
     """
+    target_form_id = form_id or ("trade_form" if getattr(toolkit, "name", "") == "trade" else "invoice_form")
     page = await _get_page()
-    expected_map = toolkit.label_map(form_id)
+    expected_map = toolkit.label_map(target_form_id)
     if not expected_map:
         return ToolResult(
             success=False,
-            error=ToolError(error_type="FormMapMismatch", message=f"No label map for {form_id}", tool_name="fill_form")
+            error=ToolError(error_type="FormMapMismatch", message=f"No label map for {target_form_id}", tool_name="fill_form")
         )
 
     # Resolve labels against live DOM
@@ -49,7 +50,7 @@ async def fill_form(
             actual_map[bound_key] = expected_label
         else:
             # Try fuzzy fallback
-            fuzzy_map = toolkit.fuzzy_label_match(form_id, available_labels)
+            fuzzy_map = toolkit.fuzzy_label_match(target_form_id, available_labels)
             if fuzzy_map and bound_key in fuzzy_map:
                 actual_map[bound_key] = fuzzy_map[bound_key]
             else:
@@ -89,7 +90,7 @@ async def fill_form(
         from worker.config import AUDIT_LOG
         shots = AUDIT_LOG.parent / "screenshots"
         shots.mkdir(exist_ok=True, parents=True)
-        bk = bound.target_values.get("invoice_number", "form")
+        bk = bound.target_values.get("invoice_number") or bound.target_values.get("trade_id") or "form"
         screenshot_path = str(shots / f"screenshot_before_{bk}.png")
         await page.screenshot(path=screenshot_path)
     except Exception as e:
@@ -107,9 +108,10 @@ async def submit_form(
     bound: BoundState,
     toolkit: Toolkit,
     business_key_value: str,
-    submit_button_name: str = "Create Invoice"
+    submit_button_name: str | None = None
 ) -> ToolResult:
     """Atomic write tool: snapshot → key pre-check → pre-submit guard → submit."""
+    btn_name = submit_button_name or getattr(toolkit, "submit_button_name", "Create Invoice")
     page = await _get_page()
 
     # 1. Snapshot (done via toolkit interface later, but we trigger it here)
@@ -178,7 +180,7 @@ async def submit_form(
         from worker.mock_erp.fault_injection import check_write_fault, SimulatedTimeoutError
         fault = check_write_fault()
 
-        await page.get_by_role("button", name=submit_button_name).click()
+        await page.get_by_role("button", name=btn_name).click()
 
         if fault == "timeout":
             raise SimulatedTimeoutError("Simulated network timeout during form submission")

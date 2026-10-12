@@ -31,9 +31,12 @@ from worker.tools import browser, forms
 logger = logging.getLogger(__name__)
 
 # Registry of toolkits
+from worker.toolkits.invoice import InvoiceToolkit
+from worker.toolkits.trade import TradeToolkit
+
 TOOLKITS = {
     "invoice": InvoiceToolkit(),
-    # "trade": TradeToolkit() ...
+    "trade": TradeToolkit(),
 }
 
 
@@ -60,13 +63,17 @@ def node_contract_plan(state: AgentState) -> dict:
     tk = TOOLKITS[toolkit_name]
     contract = tk.static_contract(state.get("params", {}))
 
-    # Basic plan for standard execution
+    target_name = "trade ledger" if tk.name == "trade" else "target system"
+    doc_name = "trade confirmation" if tk.name == "trade" else "source document"
+    submit_name = "Submit trade order" if tk.name == "trade" else "Submit form and wait for response"
+
+    # Plan dynamically tailored to toolkit
     plan = [
-        PlanItem(index=0, description="Discover source document").model_dump(),
+        PlanItem(index=0, description=f"Discover {doc_name}").model_dump(),
         PlanItem(index=1, description="Extract and ground fields").model_dump(),
-        PlanItem(index=2, description="Navigate to target system").model_dump(),
+        PlanItem(index=2, description=f"Navigate to {target_name}").model_dump(),
         PlanItem(index=3, description="Fill form using extracted data").model_dump(),
-        PlanItem(index=4, description="Submit form and wait for response").model_dump(),
+        PlanItem(index=4, description=submit_name).model_dump(),
         PlanItem(index=5, description="Submit for verification").model_dump(),
     ]
 
@@ -410,21 +417,74 @@ def router_from_tool(state: AgentState) -> str:
 
 
 def node_recovery(state: AgentState) -> dict:
-    """Deterministic Recovery Node: inspect verify failures or errors and formulate recovery guidance."""
+    """Deterministic Recovery Node: inspect verify failures or errors and actively dispatch corrective tools."""
     tk = TOOLKITS[state["toolkit"]]
     vr = state.get("verify_result") or {}
-    err = {"error_type": str(vr.get("outcome", "unknown"))}
+    raw_outcome = str(vr.get("outcome", "unknown"))
+    err = {"error_type": raw_outcome}
     recovery_spec = tk.recovery_for(err)
-    instruction = recovery_spec.get("instruction") if recovery_spec else f"Verification outcome: {vr.get('message', 'mismatch detected')}. Re-check form or inspect state."
 
-    step_num = state.get("counters", {}).get("total_steps", 0) + 1
+    counters = dict(state.get("counters", {}) or {})
+    per_class_retries = dict(counters.get("per_class_retries", {}) or {})
+
+    raw_key = raw_outcome.lower()
+    retries_so_far = per_class_retries.get(raw_key, 0)
+    max_retries = recovery_spec.get("max_retries", 2) if recovery_spec else 0
+    step_num = counters.get("total_steps", 0) + 1
+
+    # If error is unrecoverable or requires human intervention
+    if recovery_spec is None:
+        reason = vr.get("message") or f"Unrecoverable verification outcome: {raw_outcome}"
+        return {
+            "terminal": TerminalState.NEEDS_HUMAN,
+            "pending_question": f"Human intervention required: {reason}",
+            "steps_since_plan_advance": 0
+        }
+
+    # If retry budget exhausted
+    if retries_so_far >= max_retries:
+        return {
+            "terminal": TerminalState.FAILED_WITH_REASON,
+            "pending_question": f"Recovery retry limit reached ({retries_so_far}/{max_retries}) for '{raw_key}'."
+        }
+
+    per_class_retries[raw_key] = retries_so_far + 1
+    counters["per_class_retries"] = per_class_retries
+
+    action = recovery_spec.get("action")
+    instruction = recovery_spec.get("instruction", f"Recovery action: {action}")
+
+    pending_tool = None
+    pending_args = {}
+    plan_progress = state.get("plan_progress", 0)
+    session_healthy = state.get("session_healthy", True)
+
+    if action == "resubmit":
+        pending_tool = "submit_form"
+        pending_args = {}
+    elif action == "refill_from_bound":
+        pending_tool = "fill_form"
+        pending_args = {}
+        if plan_progress > 3:
+            plan_progress = 3
+    elif action == "reset_session":
+        session_healthy = False
+        pending_tool = "login"
+        pending_args = {}
+    elif action == "re_snapshot":
+        pending_tool = "read_page"
+        pending_args = {}
+    elif action in ("key_check_then_verify", "key_check_then_decide"):
+        pending_tool = "submit_for_verification"
+        pending_args = {}
+
     recovery_step = dict(
         step_number=step_num,
         stage="recovery",
-        thought=f"Recovery guidance: {instruction}",
-        action="recover",
-        action_args={},
-        observation=f"Recovery advice: {instruction}",
+        thought=f"Automated recovery triggered: {instruction}",
+        action=pending_tool or "recover",
+        action_args=pending_args,
+        observation=f"Recovery dispatch: {instruction} -> {pending_tool or 'agent reflection'}",
         error=None
     )
 
@@ -432,10 +492,18 @@ def node_recovery(state: AgentState) -> dict:
     visible_history = update_visible_history(
         state.get("history", []), state.get("visible_history", []), recovery_step
     )
+
     return {
         "history": full_history,
         "visible_history": [s.model_dump() if isinstance(s, Step) else s for s in visible_history],
-        "steps_since_plan_advance": 0
+        "steps_since_plan_advance": 0,
+        "counters": counters,
+        "pending_tool": pending_tool,
+        "pending_args": pending_args,
+        "pending_thought": f"Automated recovery step: {instruction}",
+        "plan_progress": plan_progress,
+        "session_healthy": session_healthy,
+        "terminal": None
     }
 
 
@@ -443,6 +511,14 @@ def router_from_verify(state: AgentState) -> str:
     if state.get("terminal"):
         return END
     return "node_recovery"
+
+
+def router_from_recovery(state: AgentState) -> str:
+    if state.get("terminal"):
+        return END
+    if state.get("pending_tool"):
+        return "node_execute_tool"
+    return "node_agent"
 
 
 # ── Graph Compilation ────────────────────────────────────────────────────────
@@ -467,7 +543,11 @@ def build_graph(checkpointer=None) -> StateGraph:
 
     builder.add_conditional_edges("node_agent", router_from_agent)
     builder.add_conditional_edges("node_execute_tool", router_from_tool)
-    builder.add_edge("node_recovery", "node_agent")
+    builder.add_conditional_edges("node_recovery", router_from_recovery, {
+        "node_execute_tool": "node_execute_tool",
+        "node_agent": "node_agent",
+        END: END
+    })
     builder.add_conditional_edges("node_verify", router_from_verify, {
         "node_recovery": "node_recovery",
         END: END

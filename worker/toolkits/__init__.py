@@ -82,3 +82,9 @@ class Toolkit(Protocol):
     def reset_view(self) -> None:
         """Reset browser/UI to a known good state."""
         ...
+
+
+from worker.toolkits.invoice import InvoiceToolkit
+from worker.toolkits.trade import TradeToolkit
+
+__all__ = ["Toolkit", "InvoiceToolkit", "TradeToolkit"]

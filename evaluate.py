@@ -31,6 +31,9 @@ SCENARIOS = {
     22: {"name": "Invoice already created correctly", "fault": "pre_create_correct"},
     23: {"name": "Invoice already created WRONG", "fault": "pre_create_wrong"},
     24: {"name": "Race condition execution", "fault": None},
+    # ── Generalization: Trade Execution Domain ───────────────────────────
+    25: {"name": "Trade Execution Happy Path (Generalization)", "fault": "trade_happy"},
+    26: {"name": "Trade Duplicate Order (Idempotent)", "fault": "trade_idempotent"},
 }
 
 
@@ -61,6 +64,26 @@ def create_mock_pdf():
         console.print(f"Created mock PDF: {pdf_path}")
 
 
+def create_mock_trade_file():
+    """Create a mock trade execution order file."""
+    from worker.config import DATA_DIR
+    trades_dir = DATA_DIR / "trades"
+    trades_dir.mkdir(parents=True, exist_ok=True)
+    trade_path = trades_dir / "AAPL_Trade_20261012.json"
+    if not trade_path.exists():
+        import json
+        order = {
+            "trade_id": "TRD-8801",
+            "symbol": "AAPL",
+            "direction": "buy",
+            "quantity": 50.0,
+            "price": 225.50,
+            "trade_date": "2026-10-12"
+        }
+        trade_path.write_text(json.dumps(order, indent=2), encoding="utf-8")
+        console.print(f"Created mock trade order: {trade_path}")
+
+
 async def run_scenario(scenario_id: int):
     """Run a specific evaluation scenario."""
     if scenario_id not in SCENARIOS:
@@ -74,6 +97,7 @@ async def run_scenario(scenario_id: int):
     init_db(reset=True)
     clear_all_faults()
     create_mock_pdf()
+    create_mock_trade_file()
 
     # Pre-test setups
     if s["fault"] == "pre_create_correct":
@@ -92,6 +116,14 @@ async def run_scenario(scenario_id: int):
             "amount": "99999.00", "currency": "INR", "due_date": "2026-12-31"
         })
         console.print("Pre-created conflicting invoice in DB.")
+    elif s["fault"] == "trade_idempotent":
+        from worker.mock_erp.database import execute_write
+        execute_write("trade_id", "TRD-8801", {
+            "trade_id": "TRD-8801", "symbol": "AAPL",
+            "direction": "buy", "quantity": 50.0, "price": 225.50,
+            "trade_date": "2026-10-12"
+        })
+        console.print("Pre-created identical trade in DB for idempotency test.")
     elif s["fault"] == "api_timeout_post":
         activate_fault("write", "timeout")
         console.print("Injected network timeout on POST.")
@@ -106,7 +138,10 @@ async def run_scenario(scenario_id: int):
     try:
         async with AsyncSqliteSaver.from_conn_string(str(STATE_DB)) as checkpointer:
             graph = build_graph(checkpointer=checkpointer)
-            query = "Enter the techcorp invoice"
+            if scenario_id in (25, 26):
+                query = "Execute AAPL trade order TRD-8801"
+            else:
+                query = "Enter the techcorp invoice"
             state = {"user_query": query}
             import time
             thread_id = f"eval_{scenario_id}_{int(time.time())}"

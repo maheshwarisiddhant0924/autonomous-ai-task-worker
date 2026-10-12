@@ -174,20 +174,21 @@ class InvoiceToolkit:
 
     def recovery_for(self, error_or_diff: dict) -> dict | None:
         """Look up deterministic recovery. None → LLM reflection."""
-        error_type = error_or_diff.get("error_type", "")
+        error_type = str(error_or_diff.get("error_type", "")).strip().lower()
 
         recovery_table = {
-            "StaleElementError": {"action": "re_snapshot", "max_retries": 2},
-            "read_timeout": {"action": "backoff_retry", "max_retries": 3},
-            "write_timeout": {"action": "key_check_then_decide"},
-            "pre_submit_mismatch": {"action": "refill_from_bound"},
-            "http_409": {"action": "key_check_then_verify"},
-            "key_missing": {"action": "resubmit", "max_retries": 2},
-            "wrong_values_this_run": {"action": "update_record", "max_retries": 1},
-            "browser_session_lost": {"action": "reset_session"},
-            "maintenance_page": {"action": "wait_and_retry", "wait_seconds": 5, "max_retries": 2},
-            "FormMapMismatch": None,  # → human gate
-            "PREEXISTING_CONFLICT": None,  # → human gate
+            "staleelementerror": {"action": "re_snapshot", "max_retries": 2, "instruction": "Re-take page snapshot after stale element"},
+            "read_timeout": {"action": "backoff_retry", "max_retries": 3, "instruction": "Backoff and retry read"},
+            "write_timeout": {"action": "key_check_then_decide", "max_retries": 2, "instruction": "Read-only key check after write timeout"},
+            "pre_submit_mismatch": {"action": "refill_from_bound", "max_retries": 2, "instruction": "Re-fill form values directly from verified contract"},
+            "http_409": {"action": "key_check_then_verify", "max_retries": 2, "instruction": "Check database key state following 409 conflict"},
+            "key_missing": {"action": "resubmit", "max_retries": 2, "instruction": "Target record missing from DB; re-submitting form"},
+            "wrong_values": {"action": "refill_from_bound", "max_retries": 2, "instruction": "Field mismatch detected; re-filling form"},
+            "wrong_values_this_run": {"action": "update_record", "max_retries": 1, "instruction": "Correct record values in ERP"},
+            "browser_session_lost": {"action": "reset_session", "max_retries": 2, "instruction": "Session drop detected; re-logging in"},
+            "maintenance_page": {"action": "wait_and_retry", "wait_seconds": 5, "max_retries": 2, "instruction": "Temporary maintenance page; waiting and retrying"},
+            "formmapmismatch": None,  # → human gate
+            "preexisting_conflict": None,  # → human gate
             "duplicate_rows": None,  # → human gate
         }
 

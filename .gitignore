@@ -41,6 +41,10 @@ verify_output_utf8.txt
 pipeline_text.txt
 error_test.py
 test_err.py
+verify_run.py
+debug_eval.py
+eval_traceback.txt
+verify_remediation.py
 
 # OS artifacts
 .DS_Store

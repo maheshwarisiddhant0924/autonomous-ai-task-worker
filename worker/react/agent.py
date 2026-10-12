@@ -13,7 +13,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
-from worker.config import MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER
+from worker.config import (
+    MODEL_NAME, TEMPERATURE, OPENAI_API_KEY, HUGGINGFACE_API_KEY, GROQ_API_KEY, LLM_PROVIDER,
+    retry_with_backoff,
+)
 from worker.models import AgentState, Step, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -58,6 +61,7 @@ Respond in JSON format with keys: thought, action (with tool and args), ask_user
 """
 
 
+@retry_with_backoff(max_retries=3, base_delay=1.0)
 def generate_next_step(state: AgentState, tools_registry: dict) -> AgentThought | None:
     """Run one iteration of the ReAct loop to generate the next step."""
     llm_kwargs = {

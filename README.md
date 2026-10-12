@@ -44,10 +44,32 @@ python evaluate.py 1   # Happy Path (Text PDF -> Extract -> Form Fill -> DB Veri
 python evaluate.py 14  # Fault Recovery: Network timeout on POST
 python evaluate.py 22  # Idempotency: Pre-existing identical invoice verified without duplicate write
 python evaluate.py 23  # Pre-existing conflict: Blocked before damaging state
+python evaluate.py 25  # Generalization: Trade Execution Happy Path
+python evaluate.py 26  # Generalization: Trade Duplicate Order Idempotency
 
 # 4. Launch the live observability cockpit
 streamlit run dashboard.py
 ```
+
+---
+
+## Demo Video & Live Walkthrough
+
+- **Video Demonstration**: [Watch Prototype Walkthrough Video](https://github.com/maheshwarisiddhant0924/autonomous-ai-task-worker#demo-video--live-walkthrough) *(Video file / walkthrough recorded in repository documentation)*
+- **Interactive Live Demo Instructions**:
+  1. **Start the local Mock ERP** in Terminal 1:
+     ```bash
+     python -m worker.mock_erp.server
+     ```
+  2. **Launch the Streamlit Live Cockpit** in Terminal 2:
+     ```bash
+     streamlit run dashboard.py
+     ```
+  3. **Execute an autonomous end-to-end task** in Terminal 3:
+     ```bash
+     python main.py "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
+     ```
+  4. **Observe Autonomous Execution**: Watch the Playwright browser navigate the ERP, extract and ground values, prompt at policy gates for human confirmation, fill and submit forms atomically, and independently verify the DB state.
 
 ---
 
@@ -69,7 +91,7 @@ User request → [Router] → [Contract & Plan] → [Discover & Select]
 | **Router** | LLM matches natural language to a toolkit + parameters |
 | **Contract & Plan** | Creates a validation contract and action checklist |
 | **Discovery** | Deterministic file scan, company matching, ordering |
-| **Extraction Pipeline** | PDF → structured data with grounding and independent verification |
+| **Extraction Pipeline** | PDF/document → structured data with grounding and independent verification |
 | **ReAct Agent** | Autonomous thought-action-observation loop |
 | **Policy Gate** | Human-in-the-loop for irreversible or ambiguous actions |
 | **ACI Tools** | Browser automation with atomic writes and pre-submit guards |
@@ -88,6 +110,9 @@ User request → [Router] → [Contract & Plan] → [Discover & Select]
 ### Why LangGraph?
 Provides built-in state persistence (`SqliteSaver`), human-in-the-loop interrupts, and conditional graph edges — exactly what an autonomous agent with approval gates needs.
 
+### Why decoupled toolkits (Toolkit Protocol)?
+Separating domain-specific extraction, contracts, and verification logic into swappable toolkits allows extending the worker to new tasks (such as financial trade processing via `TradeToolkit`) without rewriting or branching the core 11-stage LangGraph workflow.
+
 ### Why deterministic verification instead of LLM self-check?
 The CRITIC paper shows models can't reliably self-verify. Our verifier reads the database directly via SQLite (independent of the browser session) and compares against scoped baselines, not row counts.
 
@@ -97,27 +122,40 @@ The LLM extracts data from document text without any tools. This prevents the mo
 ### Why atomic submit?
 `submit_form()` bundles snapshot → key pre-check → guard → submit as one unit. This prevents duplicate writes (key check), wrong values (pre-submit guard), and ambiguous timeouts (read-only verification before retry).
 
-### Why deterministic recovery before LLM reflection?
-Most errors have known cause-effect patterns (stale element → re-snapshot, 409 → key check). Using deterministic handlers first is faster, cheaper, and more reliable. LLM reflection is reserved for truly unexpected situations.
+### Why active deterministic recovery with retry budgets?
+Rather than passively feeding error messages back into the LLM context, deterministic recovery inspects failure codes (`key_missing`, `wrong_values`, `session_drop`) and directly dispatches appropriate recovery tools (`submit_form`, `fill_form`, `login`), routing immediately via `router_from_recovery`. Bounded per-class retry budgets prevent infinite loops.
+
+### Why exponential backoff with jitter for LLM invocations?
+LLM providers (OpenAI, Groq) frequently experience transient rate-limits (TPM/RPM limits) or momentary connection resets. Wrapping all model invocations with `@retry_with_backoff` ensures that transient API drops do not cause high-stakes tasks to fail prematurely.
 
 ### Why semantic-role grounding?
 A grounding check that only verifies "this quote exists in the document" can be fooled by dates/amounts that appear in wrong contexts (issue date returned as due date). Semantic-role checks verify the quote appears near relevant keywords.
 
 ---
 
-## Tech Stack
+## Models, APIs, Frameworks, and External Services Used
 
-| Component | Technology |
-|---|---|
-| Orchestration | LangGraph |
-| LLM | OpenAI GPT-4o (configurable) |
-| Validation | Pydantic v2 |
-| Browser automation | Playwright |
-| PDF processing | PyMuPDF, Tesseract OCR |
-| Mock ERP | FastAPI + SQLite |
-| State persistence | SQLite (via SqliteSaver) |
-| Dashboard | Streamlit |
-| Tracing | Structured JSON audit log |
+### Models
+- **OpenAI GPT-4o** (`gpt-4o`): Primary recommended model for multi-step reasoning, structured output generation, and task routing.
+- **Groq LLaMA 3.3 70B** (`llama-3.3-70b-versatile`): Fast, low-latency alternative for cloud/local inference.
+
+### APIs & Cloud Services
+- **OpenAI API**: Structured extraction, function planning, and ReAct next-step generation.
+- **Groq Cloud API**: High-throughput inference backend supported via `config.py`.
+- **Hugging Face Inference API**: Optional fallback provider.
+
+### Frameworks & Libraries
+- **LangGraph & LangChain Core**: Stateful multi-actor graph orchestration, state checkpointing (`SqliteSaver`), and interrupt-based human-in-the-loop approvals.
+- **Playwright**: Headless/headed Chromium browser automation with ARIA accessibility tree snapshots and robust DOM locators.
+- **FastAPI & Uvicorn**: Asynchronous local Mock ERP web server providing realistic HTTP endpoints, forms, and session state.
+- **Pydantic v2**: Strict typing, data validation, static contract definition, and structured LLM output schemas.
+- **PyMuPDF (fitz) & Tesseract OCR (pytesseract)**: Multi-modal document ingestion supporting text-layer extraction and OCR fallbacks for scanned files.
+- **Streamlit**: Real-time observability dashboard displaying agent state, audit logs, grounding provenance, and verification outcomes.
+- **Levenshtein**: Fuzzy string matching for resilient form label mapping against changing DOMs.
+- **Rich**: Terminal output formatting, progress indicators, and interactive CLI prompts.
+
+### Embedded Persistence
+- **SQLite3**: Embedded transactional database for both ERP backend records and LangGraph state checkpoints (`.langgraph.sqlite`).
 
 ---
 
@@ -200,7 +238,8 @@ autonomous-ai-task-worker/
 │   │   └── verifier.py                          # Direct SQLite assertion against grounded contract
 │   ├── toolkits/                                # Domain-specific toolkits
 │   │   ├── __init__.py
-│   │   └── invoice.py                           # Invoice processing toolkit implementation
+│   │   ├── invoice.py                           # Invoice processing toolkit implementation
+│   │   └── trade.py                             # Financial trade order processing toolkit
 │   └── mock_erp/                                # Local ERP test environment
 │       ├── __init__.py
 │       ├── server.py                            # FastAPI mock ERP web application
