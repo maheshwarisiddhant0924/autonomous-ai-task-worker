@@ -101,7 +101,8 @@ def extract_fields(
     llm_kwargs = {
         "model": MODEL_NAME,
         "temperature": TEMPERATURE,
-        "max_tokens": 8192,
+        "max_tokens": 2000,
+        "max_retries": 5,
     }
     if LLM_PROVIDER == "groq":
         llm_kwargs["api_key"] = GROQ_API_KEY

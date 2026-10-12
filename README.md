@@ -57,6 +57,11 @@ streamlit run dashboard.py
 
 - **Video Demonstration**: [Watch Prototype Walkthrough Video](https://github.com/maheshwarisiddhant0924/autonomous-ai-task-worker#demo-video--live-walkthrough) *(Video file / walkthrough recorded in repository documentation)*
 - **Interactive Live Demo Instructions**:
+  > **Fresh Demo Reset**: If running after previous tests, you can reset all mock ERP data, checkpoints, and screenshots using:
+  > - **CLI**: `python reset_demo.py` (or pass `--reset` to `main.py`)
+  > - **Dashboard**: Click **"🔄 Reset All State"** in the Streamlit sidebar
+  > - **Mock ERP**: Click **"Reset DB"** in the ERP top navigation bar
+
   1. **Start the local Mock ERP** in Terminal 1:
      ```bash
      python -m worker.mock_erp.server
@@ -67,7 +72,7 @@ streamlit run dashboard.py
      ```
   3. **Execute an autonomous end-to-end task** in Terminal 3:
      ```bash
-     python main.py "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
+     python main.py --reset "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
      ```
   4. **Observe Autonomous Execution**: Watch the Playwright browser navigate the ERP, extract and ground values, prompt at policy gates for human confirmation, fill and submit forms atomically, and independently verify the DB state.
 

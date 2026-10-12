@@ -63,6 +63,14 @@ auto_refresh = st.sidebar.checkbox("Auto-refresh (every 2s)", value=True)
 if auto_refresh:
     st.sidebar.caption("⚡ Live polling active")
 
+if st.sidebar.button("🔄 Reset All State (Fresh Run)", use_container_width=True, help="Clear ERP invoices, agent checkpoints, and screenshots"):
+    from reset_demo import reset_all_state
+    reset_all_state(verbose=False)
+    st.sidebar.success("✔ Reset complete! Ready for fresh run.")
+    time.sleep(0.8)
+    st.rerun()
+
+
 
 def get_all_checkpoints():
     """Retrieve all available thread runs and the latest checkpoint."""

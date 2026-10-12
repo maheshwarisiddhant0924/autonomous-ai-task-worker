@@ -82,6 +82,7 @@ td{color:#e2e8f0}
   <h1>Internal ERP System</h1>
   <div><a href="/invoices" aria-label="View invoices">Invoices</a>
        <a href="/invoices/new" aria-label="Create new invoice">New Invoice</a>
+       <a href="/reset" aria-label="Reset database" style="color:#f87171" onclick="return confirm('Reset all ERP records?')">Reset DB</a>
        <a href="/logout" aria-label="Log out">Logout ({{ user }})</a></div>
 </nav>
 {% endif %}
@@ -370,11 +371,29 @@ async def api_create_invoice(request: Request):
         raise HTTPException(status_code=409, detail="Duplicate invoice number")
 
 
+# ── Reset routes ─────────────────────────────────────────────────────────────
+
+@app.get("/reset")
+async def erp_reset_route(request: Request):
+    user = _check_session(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    init_db(reset=True)
+    return RedirectResponse("/invoices?message=ERP+database+reset+successfully", status_code=302)
+
+
+@app.post("/api/reset")
+async def api_reset():
+    init_db(reset=True)
+    return JSONResponse({"status": "ok", "message": "ERP database reset"})
+
+
 # ── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
 
 
 # ── Run ──────────────────────────────────────────────────────────────────────

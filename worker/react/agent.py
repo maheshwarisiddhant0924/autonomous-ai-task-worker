@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -67,7 +68,8 @@ def generate_next_step(state: AgentState, tools_registry: dict) -> AgentThought 
     llm_kwargs = {
         "model": MODEL_NAME,
         "temperature": TEMPERATURE,
-        "max_tokens": 8192,
+        "max_tokens": 1500,
+        "max_retries": 5,
     }
     if LLM_PROVIDER == "groq":
         llm_kwargs["api_key"] = GROQ_API_KEY
@@ -152,9 +154,20 @@ def generate_next_step(state: AgentState, tools_registry: dict) -> AgentThought 
         HumanMessage(content=history_text),
     ]
 
-    try:
-        result: AgentThought = structured_llm.invoke(messages)
-        return result
-    except Exception as e:
-        logger.error(f"LLM generation failed: {e}")
-        return None
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result: AgentThought = structured_llm.invoke(messages)
+            return result
+        except Exception as e:
+            err_str = str(e)
+            if ("429" in err_str or "rate_limit" in err_str.lower()) and attempt < max_attempts:
+                wait_time = 3.0 * attempt
+                logger.warning(f"[RateLimit429] Hit rate limit on {MODEL_NAME}. Backing off for {wait_time:.1f}s (attempt {attempt}/{max_attempts})...")
+                time.sleep(wait_time)
+            elif attempt < max_attempts:
+                logger.warning(f"[LLMRetry] LLM invoke failed: {e}. Retrying in 1.5s...")
+                time.sleep(1.5)
+            else:
+                logger.error(f"LLM generation failed after {max_attempts} attempts: {e}")
+                return None
