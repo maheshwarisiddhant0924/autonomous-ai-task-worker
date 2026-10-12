@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Invoices</h2>
+  {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+  <table aria-label="Invoice list">
+    <thead><tr><th>Invoice #</th><th>Company</th><th>Amount</th><th>Currency</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for inv in invoices %}
+    <tr>
+      <td>{{ inv.invoice_number }}</td>
+      <td>{{ inv.company }}</td>
+      <td>{{ "%.2f"|format(inv.amount) }}</td>
+      <td>{{ inv.currency }}</td>
+      <td>{{ inv.due_date }}</td>
+      <td><span class="status-badge status-{{ inv.status }}">{{ inv.status }}</span></td>
+      <td><a href="/invoices/{{ inv.invoice_number }}/edit" aria-label="Edit invoice {{ inv.invoice_number }}">Edit</a></td>
+    </tr>
+    {% endfor %}
+    {% if not invoices %}<tr><td colspan="7" style="text-align:center;color:#64748b">No invoices found</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

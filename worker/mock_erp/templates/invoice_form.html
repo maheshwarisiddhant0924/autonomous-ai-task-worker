@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>{{ "Edit" if editing else "New" }} Invoice</h2>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+  <form method="POST" action="{{ action_url }}" aria-label="Invoice form" id="invoice-form">
+    <div class="form-group"><label for="invoice_number">Invoice Number</label>
+      <input type="text" id="invoice_number" name="invoice_number" value="{{ inv.invoice_number or '' }}"
+             {{ "readonly" if editing }} required aria-required="true"></div>
+    <div class="form-group"><label for="company">Company</label>
+      <input type="text" id="company" name="company" value="{{ inv.company or '' }}" required aria-required="true"></div>
+    <div class="form-group"><label for="amount">Total Amount</label>
+      <input type="text" id="amount" name="amount" value="{{ inv.amount or '' }}" required aria-required="true"></div>
+    <div class="form-group"><label for="currency">Currency</label>
+      <select id="currency" name="currency" aria-label="Currency">
+        <option value="INR" {{ "selected" if (inv.currency or "INR") == "INR" }}>INR</option>
+        <option value="USD" {{ "selected" if inv.currency == "USD" }}>USD</option>
+        <option value="EUR" {{ "selected" if inv.currency == "EUR" }}>EUR</option>
+      </select></div>
+    <div class="form-group"><label for="due_date">Due Date</label>
+      <input type="date" id="due_date" name="due_date" value="{{ inv.due_date or '' }}" required aria-required="true"></div>
+    <div class="form-group"><label for="subtotal">Subtotal</label>
+      <input type="text" id="subtotal" name="subtotal" value="{{ inv.subtotal or '' }}"></div>
+    <div class="form-group"><label for="tax">Tax</label>
+      <input type="text" id="tax" name="tax" value="{{ inv.tax or '' }}"></div>
+    <div class="form-group"><label for="notes">Notes</label>
+      <textarea id="notes" name="notes" rows="3" aria-label="Notes">{{ inv.notes or '' }}</textarea></div>
+    <button type="submit" class="btn btn-primary" id="submit-btn">{{ "Update" if editing else "Create" }} Invoice</button>
+    <a href="/invoices" class="btn btn-secondary" style="margin-left:.5rem;text-decoration:none">Cancel</a>
+  </form>
+</div>
+{% endblock %}

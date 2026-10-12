@@ -1,0 +1,53 @@
+# Environment variables and secrets
+.env
+*.env
+!.env.example
+
+# Python virtual environment
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+
+# Databases and checkpoints
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+.langgraph.sqlite
+data/*.db
+!data/.gitkeep
+
+# Logs and runtime dumps
+logs/*
+!logs/.gitkeep
+*.log
+audit.jsonl
+pure_err.txt
+testclient_error.txt
+verify_output.txt
+verify_output_utf8.txt
+pipeline_text.txt
+error_test.py
+test_err.py
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE & Editor
+.vscode/
+.idea/

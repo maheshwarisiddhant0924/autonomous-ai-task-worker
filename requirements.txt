@@ -1,0 +1,26 @@
+# Core
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=2.0.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# Browser automation
+playwright>=1.40.0
+
+# PDF processing
+pymupdf>=1.24.0
+pytesseract>=0.3.10
+
+# Mock ERP
+fastapi>=0.110.0
+uvicorn>=0.27.0
+aiosqlite>=0.20.0
+
+# Dashboard
+streamlit>=1.35.0
+
+# Utilities
+httpx>=0.27.0
+rich>=13.7.0
