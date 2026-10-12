@@ -12,8 +12,8 @@ An AI agent that takes a natural language task and autonomously completes it —
 ### Setup
 ```bash
 # Clone and enter the project
-git clone <repo-url>
-cd autonomous-ai-worker
+git clone https://github.com/maheshwarisiddhant0924/autonomous-ai-task-worker.git
+cd autonomous-ai-task-worker
 
 # Create virtual environment
 python -m venv venv
@@ -28,18 +28,24 @@ playwright install chromium
 
 # Set environment variables
 copy .env.example .env
-# Edit .env with your API key
+# Edit .env with your LLM API key (OpenAI, Groq, or Hugging Face)
 ```
 
 ### Run
 ```bash
-# Start the mock ERP server (in a separate terminal)
+# 1. Start the mock ERP server (in a separate terminal)
 python -m worker.mock_erp.server
 
-# Run a task via CLI
+# 2. Run an end-to-end task via CLI
 python main.py "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
 
-# Run with the live dashboard
+# 3. Run evaluation harness scenarios (with fault injection & verification)
+python evaluate.py 1   # Happy Path (Text PDF -> Extract -> Form Fill -> DB Verify)
+python evaluate.py 14  # Fault Recovery: Network timeout on POST
+python evaluate.py 22  # Idempotency: Pre-existing identical invoice verified without duplicate write
+python evaluate.py 23  # Pre-existing conflict: Blocked before damaging state
+
+# 4. Launch the live observability cockpit
 streamlit run dashboard.py
 ```
 
@@ -154,63 +160,51 @@ A grounding check that only verifies "this quote exists in the document" can be 
 ## Project Structure
 
 ```
-autonomous-ai-worker/
-├── main.py                     # CLI entry point
-├── dashboard.py                # Streamlit live dashboard
-├── requirements.txt
-├── .env.example
+autonomous-ai-task-worker/
+├── main.py                                      # CLI entry point for natural language tasks
+├── evaluate.py                                  # Evaluation harness with 24 scenario mappings & fault injection
+├── dashboard.py                                 # Streamlit live observability dashboard & audit cockpit
+├── verify_run.py                                # Checkpoint verification inspection utility
+├── requirements.txt                             # Python dependencies
+├── .env.example                                 # Environment variable template (OpenAI, Groq, HF)
+├── Autonomous_AI_Task_Worker_Final_Pipeline.md  # Comprehensive 11-stage architectural specification
+├── Autonomous_AI_Task_Worker_Final_Pipeline.pdf # PDF export of the system specification
+├── invoices/                                    # Sandbox invoice storage
+│   └── TechCorp_Invoice_20261001.pdf           # Sample benchmark invoice
 ├── worker/
 │   ├── __init__.py
-│   ├── config.py               # Environment config & constants
-│   ├── models.py               # Pydantic models (state, contracts, results)
-│   ├── graph.py                # LangGraph orchestration
-│   ├── router.py               # Stage 1: Task router
-│   ├── planner.py              # Stage 2: Contract & plan
-│   ├── discovery.py            # Stage 3: File discovery & selection
-│   ├── extraction/
+│   ├── config.py                                # Environment config, LLM provider routing & constants
+│   ├── models.py                                # Pydantic v2 schemas (AgentState, contracts, results)
+│   ├── graph.py                                 # LangGraph workflow connecting all 11 stages
+│   ├── router.py                                # Stage 1: LLM task router to toolkit
+│   ├── discovery.py                             # Stage 3: Deterministic file scan & company matching
+│   ├── extraction/                              # Stage 4: Strict data extraction & grounding
 │   │   ├── __init__.py
-│   │   ├── converter.py        # Stage 4.1: PDF → markdown
-│   │   ├── extractor.py        # Stage 4.3: LLM extraction
-│   │   ├── grounding.py        # Stage 4.4: Quote & semantic validation
-│   │   ├── checker.py          # Stage 4.5: Independent check
-│   │   └── binder.py           # Stage 4.7: Bind to contract
-│   ├── react/
+│   │   ├── converter.py                         # PDF text & OCR layer extraction
+│   │   ├── extractor.py                         # Tool-less LLM structured extraction
+│   │   ├── grounding.py                         # Quote matching & semantic role validation
+│   │   ├── checker.py                           # Independent cross-check validation
+│   │   └── binder.py                            # Immutable state binding to contract
+│   ├── react/                                   # Stage 5 & 6: ReAct execution & policy gating
 │   │   ├── __init__.py
-│   │   ├── agent.py            # Stage 5: ReAct loop
-│   │   ├── policy_gate.py      # Stage 6: Human approval gate
-│   │   └── context_manager.py  # Stage 8: Observation compaction
-│   ├── tools/
+│   │   ├── agent.py                             # ReAct loop (Thought -> Action -> Observation)
+│   │   ├── policy_gate.py                       # Human approval gate for sensitive/risky actions
+│   │   └── context_manager.py                   # History observation compaction
+│   ├── tools/                                   # Stage 7: ACI browser & form automation
 │   │   ├── __init__.py
-│   │   ├── browser.py          # Stage 7: Playwright browser tools
-│   │   ├── forms.py            # Stage 7: fill_form, submit_form
-│   │   └── base.py             # Tool specs & permission tiers
-│   ├── verification/
+│   │   ├── base.py                              # Tool specs, permissions (READ / IDEMPOTENT_WRITE)
+│   │   ├── browser.py                           # Playwright session management & ARIA snapshotting
+│   │   └── forms.py                             # Form filling, pre-submit guard & atomic submission
+│   ├── verification/                            # Stage 9: Independent DB verification
 │   │   ├── __init__.py
-│   │   └── verifier.py         # Stage 9: Independent DB verification
-│   ├── recovery/
+│   │   └── verifier.py                          # Direct SQLite assertion against grounded contract
+│   ├── toolkits/                                # Domain-specific toolkits
 │   │   ├── __init__.py
-│   │   └── router.py           # Stage 10: Recovery routing
-│   ├── evidence.py             # Stage 11: Evidence bundle
-│   ├── toolkits/
-│   │   ├── __init__.py
-│   │   ├── protocol.py         # Toolkit protocol definition
-│   │   ├── invoice.py          # Invoice toolkit
-│   │   └── trade.py            # Trade toolkit (stretch)
-│   └── mock_erp/
+│   │   └── invoice.py                           # Invoice processing toolkit implementation
+│   └── mock_erp/                                # Local ERP test environment
 │       ├── __init__.py
-│       ├── server.py           # FastAPI mock ERP
-│       ├── database.py         # SQLite schema & operations
-│       └── fault_injection.py  # Test hooks for eval scenarios
-├── prompts/
-│   ├── router.txt
-│   ├── extraction.txt
-│   ├── react_system.txt
-│   └── reflection.txt
-├── invoices/                   # Sandbox invoice folder
-│   └── (sample PDFs)
-├── tests/
-│   ├── __init__.py
-│   └── eval_harness.py         # 24-scenario evaluation
-└── docs/
-    └── pipeline.md             # Full pipeline document
+│       ├── server.py                            # FastAPI mock ERP web application
+│       ├── database.py                          # SQLite database schema, operations & unique keys
+│       ├── fault_injection.py                   # Simulated network timeouts & test hooks
+│       └── templates/                           # HTML templates for mock ERP portal
 ```
